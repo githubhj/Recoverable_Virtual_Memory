@@ -14,6 +14,7 @@ using namespace std;
  * base address*/
 typedef struct _segment_t{
 	bool mapped;
+	bool already_being_used;
 	int size_occupied;
 	char* base_addr;
 }segment_t;
@@ -24,11 +25,12 @@ typedef struct _segment_t{
 typedef map<const char*, segment_t*> segment_map_t;
 typedef pair<const char*, segment_t*> segment_pair_t;
 typedef map<char*, const char*> segment_addrmap_t;
-
+typedef map<long long,char*> transaction_dir_map_t;
+typedef pair<long long,char*> transaction_dir_pair_t;
 
 typedef const char* rvm_t;
 
-typedef int trans_t;
+typedef long long trans_t;
 
 int get_file_size(const char* filepath);
 

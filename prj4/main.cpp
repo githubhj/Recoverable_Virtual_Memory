@@ -8,6 +8,8 @@
 
 #include "rvm.h"
 #include <iostream>
+#include <stdlib.h>
+#include <string>
 
 using namespace std;
 
@@ -18,4 +20,13 @@ int main(int argc, char** argv){
 	cout << rvm << endl;
 
 	void * ptr = rvm_map(rvm, "myseg", 1000);
+
+	int* a = (int*) malloc(2*sizeof(int));
+
+	a[0]= 1;
+	a[1] = 2;
+
+	a = (int*) realloc(a,3*sizeof(int));
+
+	cout << a[0] << "\n" << a[1] << "\n" << a[2]<< endl;
 }
