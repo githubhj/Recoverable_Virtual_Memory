@@ -236,20 +236,89 @@ void rvm_commit_trans(trans_t tid){
 			redo_log_map[tid][i]->segment_data = temp_addr + temp_offset;
 
 			//Now we need to create a log file
-
 			const char* logfile = string( string(transaction_rvm_map[tid]) + "\\" + temp_segment_name + ".logfile").c_str();
-			ofstream logfile_handler(logfile, ios::out | ios::app);
-
+			ofstream logfile_handler;
+			logfile_handler.open(logfile,std::ios_base::app);
+			logfile_handler << redo_log_map[tid][i]->segment_offset << "~~::separator::~~" << redo_log_map[tid][i]->segment_data;
+			logfile_handler.close();
 		}
+
+		//Remove log from undo, redo and transaction maps
+		transaction_rvm_map.erase(tid);
+		undo_log_map.erase(tid);
+		redo_log_map.erase(tid);
 	}
 }
 
 
 void rvm_abort_trans(trans_t tid){
+	//Check if this tid is valid or not
+	if(tid > transaction_id_count){
+		cout << "Error: rvm_commit_trans() : tid is invalid, please enter correct valid id" << endl;
+		return;
+	}
+	else if(transaction_rvm_map.find(tid)==transaction_rvm_map.end()){
+		cout << "Error: rvm_commit_trans(): tid not found in transaction rvm map" << endl;
+		return;
+	}
 
+	else if(undo_log_map.find(tid) == undo_log_map.end()){
+		cout << "Error: rvm_abort_trans(): tid not found in transaction undo log map" << endl;
+		return;
+	}
+
+	else{
+
+		for(int i=0; i<undo_log_map[tid].size() ; i++){
+			char * temp_addr = undo_log_map[tid][i]->segment_addr;
+			const char* temp_segment_name = segment_addrmap[temp_addr];
+			int temp_offset = undo_log_map[tid][i]->segment_offset;
+			int temp_size = undo_log_map[tid][i]->segment_size;
+			strncpy(segment_map[temp_addr]->base_addr + temp_offset ,undo_log_map[tid][i]->segment_data, temp_size);
+		}
+
+		//Remove log from undo, redo and transaction maps
+		transaction_rvm_map.erase(tid);
+		undo_log_map.erase(tid);
+		redo_log_map.erase(tid);
+	}
 }
 
 
 void rvm_truncate_log(rvm_t rvm){
+
+}
+
+void segment_truncate(rvm_t rvm_dir, const char* segment_name){
+	const char* segment_file = create_segpath(rvm_dir,segment_name);
+	const char* segment_logfile = string(string(segment_file) + ".logfile").c_str();
+
+	//No log, just remove logfile even if it does not exist
+	if(get_file_size(segment_logfile) == -1){
+		const char* remove_command = string(string("rm ") + string(segment_logfile)).c_str();
+		system(remove_command);
+		return;
+	}
+	else{
+		string line;
+		ifstream logfile_handler(segment_logfile);
+		string delim = "::seperator::";
+		int offset;
+		char* data;
+		while(getline(logfile_handler,line)){
+			//Get offset
+			offset = atoi(line.substr(0,line.find(delim)).c_str());
+			//Get data
+			data = line.substr(line.find(delim)+delim.length()).c_str();
+
+			ofstream segment_file_handler;
+			segment_file_handler.open(segment_file, std::ios_base::in | std::ios_base::out| std::ios_base::binary);
+			streamoff position = offset;
+			//Check this
+			segment_file_handler.seekp(position-1,ios::beg);
+			segment_file_handler << data;
+			segment_file_handler.close();
+		}
+	}
 
 }
