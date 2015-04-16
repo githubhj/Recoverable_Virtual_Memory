@@ -1,63 +1,72 @@
-/*
- * main.cpp
- *
- *  Created on: Apr 7, 2015
- *      Author: harshit
- */
-
+/* abort.c - test that aborting a modification returns the segment to
+ * its initial state */
 
 #include "rvm.h"
-#include <iostream>
+#include <unistd.h>
+#include <stdio.h>
 #include <stdlib.h>
-#include <string>
-#include <cstring>
-#include <fstream>
+#include <string.h>
+
+#define TEST_STRING1 "hello, world"
+#define TEST_STRING2 "bleg!"
+#define OFFSET2 1000
 
 
-using namespace std;
+int main(int argc, char **argv)
+{
+     rvm_t rvm;
+     char *seg;
+     char *segs[1];
+     trans_t trans;
+     
+     rvm = rvm_init("rvm_segments");
+     
+     rvm_destroy(rvm, "testseg");
+     
+     segs[0] = (char *) rvm_map(rvm, "testseg", 10000);
+     seg = segs[0];
 
-int main(int argc, char** argv){
+     print_segment_andaddr_map();
 
-	const char* dir = "My_new_dir";
-	//rvm_t rvm = rvm_init((const char*)"dir");
-	//cout << rvm << endl;
+     cout<<endl<<endl;
 
-	//void * ptr = rvm_map(rvm, "myseg", 1000);
+     /* write some data and commit it */
+     trans = rvm_begin_trans(rvm, 1, (void**) segs);
+     rvm_about_to_modify(trans, seg, 0, 100);
+     sprintf(seg, TEST_STRING1);
+     
+     rvm_about_to_modify(trans, seg, OFFSET2, 100);
+     sprintf(seg+OFFSET2, TEST_STRING1);
 
-	int* a = (int*) malloc(2*sizeof(int));
+     rvm_commit_trans(trans);
 
-	a[0]= 1;
-	a[1] = 2;
+     /* start writing some different data, but abort */
+     trans = rvm_begin_trans(rvm, 1, (void**) segs);
+     rvm_about_to_modify(trans, seg, 0, 100);
+     sprintf(seg, TEST_STRING2);
+     
+     rvm_about_to_modify(trans, seg, OFFSET2, 100);
+     sprintf(seg+OFFSET2, TEST_STRING2);
 
-	a = (int*) realloc(a,3*sizeof(int));
-
-	cout << a[0] << "\n" << a[1] << "\n" << a[2]<< endl;
-
-	char * b = (char*)malloc(10);
-	char* c = "I am an indian\n";
-
-	cout << c << endl;
-
-	b=  strncpy(b,c,sizeof(char)*5);
-	cout << string(b) << endl;
-
-	ofstream outfile;
-	outfile.open("logfile.txt", std::ios_base::out|std::ios_base::app);
-	outfile << "I am not home" << " ::seperator:: " << "The end" << "\n";
-	outfile << "I am not home done" << " ::seperator:: " << "The end done" << "\n";
-	outfile.close();
-	ofstream newfile;
-	newfile.open("logfile.txt", std::ios_base::in | std::ios_base::out| std::ios_base::binary);
-	streamoff pos =9;
-	newfile.seekp(pos,std::ios_base::beg);
-	newfile << "I am what I am\n"	;
-	newfile.close();
-
-	string s = "datadatadata::seperator::i1231o231";
-	string delim = "::seperator::";
-	cout << s.substr(0,s.find(delim)) << endl;
-	cout << s.substr(s.find(delim)+13) << endl;
+     rvm_abort_trans(trans);
 
 
+     /* test that the data was restored */
+     if(strcmp(seg+OFFSET2, TEST_STRING1)) {
+	  printf("ERROR: second hello is incorrect (%s)\n",
+		 seg+OFFSET2);
+	  exit(2);
+     }
 
+     if(strcmp(seg, TEST_STRING1)) {
+	  printf("ERROR: first hello is incorrect (%s)\n",
+		 seg);
+	  exit(2);
+     }
+     
+
+     rvm_unmap(rvm, seg);
+     printf("OK\n");
+     exit(0);
 }
+

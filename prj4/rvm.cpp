@@ -5,8 +5,11 @@
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <fstream>
+#include <dirent.h>
+#include <stdio.h>
 using namespace std;
 
+//edit test
 /*Global Variables*/
 segment_map_t segment_map;
 segment_addrmap_t segment_addrmap;
@@ -39,7 +42,27 @@ int get_file_size(const char* filepath){
 }
 
 const char* create_segpath(const char* dir, const char* filename){
-	return string( string(dir) + string("\\") + string(filename)).c_str();
+	return (const char*)string( string(dir) + string("/") + string(filename)).c_str();
+}
+
+void print_segment_andaddr_map()
+{
+	segment_map_t::iterator it1 = segment_map.begin();
+	segment_addrmap_t::iterator it2 = segment_addrmap.begin();
+
+	cout << "Segment Map is" << endl;
+	for(;it1 != segment_map.end(); it1++)
+	{
+		cout << (*it1).first << " 	"  << "Mapping " << ((*it1).second)->mapped << " In use " << ((*it1).second)->used_by_tid << endl;
+	}
+	cout<<endl<<endl;
+
+	cout << "Segment Address Map is" << endl;
+	for(;it2 != segment_addrmap.end(); it2++)
+	{
+		cout << (*it2).second << endl;
+	}
+
 }
 
 /*Initialize a directory containing logs*/
@@ -58,16 +81,20 @@ void *rvm_map(rvm_t rvm, const char *segname, int size_to_create){
 
 	//Segment not present in directory
 	if(present_filesize == -1){
-		ofstream segfile(filepath);
+		string tempfile = string(filepath);
+		ofstream segfile(tempfile.c_str());
 		segfile.close();
 
 		segment_t* temp_seg_ptr = (segment_t*)malloc(sizeof(segment_t));
 		temp_seg_ptr->base_addr = (char*)malloc(size_to_create);
 		temp_seg_ptr->mapped = true;
-		temp_seg_ptr->already_being_used = true;
+		temp_seg_ptr->used_by_tid = 0; //CHANGE
 		temp_seg_ptr->size_occupied = size_to_create;
 
 		segment_map.insert(segment_pair_t(segname,temp_seg_ptr));
+		segment_addrmap.insert(segment_addr_pair_t(temp_seg_ptr->base_addr,segname));
+
+		return temp_seg_ptr->base_addr;
 
 	}
 	//If segment is present in the directory
@@ -77,9 +104,14 @@ void *rvm_map(rvm_t rvm, const char *segname, int size_to_create){
 			segment_t* temp_seg_ptr = (segment_t*)malloc(sizeof(segment_t));
 			temp_seg_ptr->base_addr = (char*)malloc(size_to_create);
 			temp_seg_ptr->mapped = true;
-			temp_seg_ptr->already_being_used = true;
+			temp_seg_ptr->used_by_tid = 0; //CHANGE
 			temp_seg_ptr->size_occupied = size_to_create;
 			segment_map.insert(segment_pair_t(segname,temp_seg_ptr));
+			segment_addrmap.insert(segment_addr_pair_t(temp_seg_ptr->base_addr,segname));
+
+			//CHANGE
+			//COMMIT LOG FILE TO SEGMENT FILE
+			//COPY SEGMENT FROM DISK
 		}
 
 		//If in the hash map
@@ -91,8 +123,12 @@ void *rvm_map(rvm_t rvm, const char *segname, int size_to_create){
 				if(present_filesize < size_to_create){
 					segment_map[segname]->base_addr = (char*)realloc(segment_map[segname]->base_addr,size_to_create);
 					segment_map[segname]->mapped =  true;
-					segment_map[segname]->already_being_used = true;
+					segment_map[segname]->used_by_tid = 0; //CHANGE
 					segment_map[segname]->size_occupied = size_to_create;
+
+					//CHANGE
+					//COMMIT LOG FILE TO SEGMENT FILE
+					//COPY SEGMENT FROM DISK
 				}
 
 				//Else return
@@ -106,7 +142,7 @@ void *rvm_map(rvm_t rvm, const char *segname, int size_to_create){
 			else{
 				segment_map[segname]->base_addr = (char*)malloc(size_to_create);
 				segment_map[segname]->mapped = true;
-				segment_map[segname]->already_being_used = true;
+				segment_map[segname]->used_by_tid = 0; //CHANGE
 				segment_map[segname]->size_occupied = size_to_create;
 			}
 
@@ -120,11 +156,53 @@ void *rvm_map(rvm_t rvm, const char *segname, int size_to_create){
 
 
 void rvm_unmap(rvm_t rvm, void *segbase){
-
+	const char* temp_segment_name = segment_addrmap[(char* ) segbase];
+	segment_map[temp_segment_name]->base_addr = NULL;
+	segment_map[temp_segment_name]->mapped = false;
 }
 
 
-void rvm_destroy(rvm_t rvm, const char *segname){}
+void rvm_destroy(rvm_t rvm, const char *segname){
+	//check whether the segment is mapped
+	//if yes then cannot destroy
+
+	const char* filepath = create_segpath(rvm, segname);
+	string rm("rm");
+	rm = rm + string(" ") + filepath;
+	system(rm.c_str());
+
+	//Removing Backing Store
+	string logfile = string(filepath) + string(".logfile");
+	rm = "rm ";
+	rm = rm + logfile;
+
+	system(rm.c_str());
+
+	if(segment_map.find(segname) == segment_map.end()){
+		return;
+	}
+
+	if(segment_map[segname]->mapped == true)
+	{
+		cout << "Cannot deleted a mapped segment" <<endl;
+		return;
+	}
+
+	 //Delete entry from Hash Map
+
+	char* segbase = (segment_map[segname])->base_addr;
+	segment_addrmap_t::iterator it_addr = segment_addrmap.find(segbase);
+	segment_map_t::iterator it = segment_map.find(segname);
+
+	if(it == segment_map.end())
+	{
+		cout << "Invalid Call to Destroy as segment does not exist" << endl;
+		return;
+	}
+
+	segment_map.erase(it);
+	segment_addrmap.erase(it_addr);
+}
 
 trans_t rvm_begin_trans(rvm_t rvm, int numsegs, void **segbases){
 
@@ -132,21 +210,33 @@ trans_t rvm_begin_trans(rvm_t rvm, int numsegs, void **segbases){
 	for(int i =0 ; i<numsegs ; i++){
 		//Get segment name from segment addr - name map
 		const char* segment_name = segment_addrmap[(char* )segbases[i]];
+		cout<<"Inside Begin segment is "<<segment_name;
+		cout<< "In use is " << segment_map[segment_name]->used_by_tid <<endl;
 
 		//Look for segment name in segment name to segment data_str map
 		if(segment_map.find(segment_name) == segment_map.end()){
 			cout << "Error: rvm_begin_trans(): segment not found in segment map, mapping required" << endl;
 			return -1;
 		}
-		else if(segment_map[segment_name]->already_being_used == true){
+
+		else if(segment_map[segment_name]->used_by_tid != 0){
+
 			cout << "Error: rvm_begin_trans(): segment found is in use, Segment name: " << segment_name << endl;
 			return -1;
 		}
+
+		//segment_map[segment_name]->used_by_tid = transaction_id_count + 1; //CHANGE. NEED TO SET THE IN USE FLAG AS THIS SEGMENT IS BEING USED!
 	}
 
 	//Reached here means everything good
 	//Increment global transaction count
 	transaction_id_count++;
+
+	for(int i =0 ; i<numsegs ; i++){
+		const char* segment_name = segment_addrmap[(char* )segbases[i]];
+
+		segment_map[segment_name]->used_by_tid = transaction_id_count;
+	}
 
 	//insert in transaction to directory map
 	transaction_rvm_map.insert(transaction_rvm_pair_t(transaction_id_count,rvm));
@@ -156,12 +246,27 @@ trans_t rvm_begin_trans(rvm_t rvm, int numsegs, void **segbases){
 }
 
 void rvm_about_to_modify(trans_t tid, void *segbase, int offset, int size){
+
+	const char* segname = segment_addrmap[segbase];
+
+	if(tid == -1)
+	{
+		cout << "Invalid Transaction which failed in begin" << endl;
+		return;
+	}
+
 	if(tid > transaction_id_count){
 		cout << "Error: rvm_about_to_modify() : tid is invalid, please enter correct valid id" << endl;
 		return;
 	}
+
 	else if(transaction_rvm_map.find(tid)==transaction_rvm_map.end()){
 		cout << "Error: rvm_about_to_modify(): tid not found in transaction rvm map" << endl;
+		return;
+	}
+
+	else if(segment_map[segname]->used_by_tid != tid){
+		cout << "Error: rvm_about_to_modify(): segment used by other tid" << endl;
 		return;
 	}
 	else{
@@ -184,6 +289,7 @@ void rvm_about_to_modify(trans_t tid, void *segbase, int offset, int size){
 		redo_log_segment_ptr->segment_addr = (char*)segbase;
 		redo_log_segment_ptr->segment_data = NULL;
 		redo_log_segment_ptr->segment_offset = offset;
+		redo_log_segment_ptr->size = size;
 
 		//Push undo log on transaction - undo log map
 		//If not found on map
@@ -213,6 +319,12 @@ void rvm_commit_trans(trans_t tid){
 	//Committing transaction, means commit the redo log, don't truncate
 	//Means just reate a log file with offset info and data
 
+	if(tid == -1)
+	{
+		cout << "Invalid Transaction which failed in begin" << endl;
+		return;
+	}
+
 	//Check if this tid is valid or not
 	if(tid > transaction_id_count){
 		cout << "Error: rvm_commit_trans() : tid is invalid, please enter correct valid id" << endl;
@@ -233,14 +345,18 @@ void rvm_commit_trans(trans_t tid){
 			char * temp_addr = redo_log_map[tid][i]->segment_addr;
 			const char* temp_segment_name = segment_addrmap[temp_addr];
 			int temp_offset = redo_log_map[tid][i]->segment_offset;
-			redo_log_map[tid][i]->segment_data = temp_addr + temp_offset;
+			redo_log_map[tid][i]->segment_data = (char*)malloc(redo_log_map[tid][i]->size);
+			redo_log_map[tid][i]->segment_data = strncpy(redo_log_map[tid][i]->segment_data, temp_addr + temp_offset, redo_log_map[tid][i]->size);
 
 			//Now we need to create a log file
-			const char* logfile = string( string(transaction_rvm_map[tid]) + "\\" + temp_segment_name + ".logfile").c_str();
+			const char* logfile = string( string(transaction_rvm_map[tid]) + "/" + temp_segment_name + ".logfile").c_str();
 			ofstream logfile_handler;
 			logfile_handler.open(logfile,std::ios_base::app);
-			logfile_handler << redo_log_map[tid][i]->segment_offset << "~~::separator::~~" << redo_log_map[tid][i]->segment_data;
+			logfile_handler << redo_log_map[tid][i]->segment_offset << "~~::separator::~~" << redo_log_map[tid][i]->segment_data << "\n";
 			logfile_handler.close();
+
+			//Change in use to 0
+			segment_map[temp_segment_name]->used_by_tid = 0;
 		}
 
 		//Remove log from undo, redo and transaction maps
@@ -253,6 +369,13 @@ void rvm_commit_trans(trans_t tid){
 
 void rvm_abort_trans(trans_t tid){
 	//Check if this tid is valid or not
+	if(tid == -1)
+	{
+		cout << "Invalid Transaction which failed in begin" << endl;
+		return;
+	}
+
+
 	if(tid > transaction_id_count){
 		cout << "Error: rvm_commit_trans() : tid is invalid, please enter correct valid id" << endl;
 		return;
@@ -274,7 +397,9 @@ void rvm_abort_trans(trans_t tid){
 			const char* temp_segment_name = segment_addrmap[temp_addr];
 			int temp_offset = undo_log_map[tid][i]->segment_offset;
 			int temp_size = undo_log_map[tid][i]->segment_size;
-			strncpy(segment_map[temp_addr]->base_addr + temp_offset ,undo_log_map[tid][i]->segment_data, temp_size);
+			strncpy(segment_map[temp_segment_name]->base_addr + temp_offset ,undo_log_map[tid][i]->segment_data, temp_size);
+			//Change in use to 0
+			segment_map[temp_segment_name]->used_by_tid = 0;
 		}
 
 		//Remove log from undo, redo and transaction maps
@@ -286,6 +411,31 @@ void rvm_abort_trans(trans_t tid){
 
 
 void rvm_truncate_log(rvm_t rvm){
+	DIR *mylocation;
+	vector<string> filelist;
+	struct dirent* dir;
+	mylocation = opendir(("./"+string(rvm)).c_str());
+	if (mylocation)
+	{
+		while ((dir = (readdir(mylocation))) != NULL)
+		{
+			string filename(dir->d_name);
+			if (filename.find(".logfile") != string::npos)
+			{
+				filelist.push_back(dir->d_name);
+			}
+
+		}
+		closedir(mylocation);
+	}
+	for (vector<string>::iterator it = filelist.begin(); it != filelist.end();
+			++it)
+	{
+		string file = *it;
+		file = file.substr(0, file.length() - 8); //filename - '.logfile'
+ 		char *segment_name = (char *) file.c_str();
+		segment_truncate(rvm, segment_name);
+	}
 
 }
 
@@ -302,7 +452,7 @@ void segment_truncate(rvm_t rvm_dir, const char* segment_name){
 	else{
 		string line;
 		ifstream logfile_handler(segment_logfile);
-		string delim = "::seperator::";
+		string delim = "~~::seperator::~~"; //CHANGE
 		int offset;
 		char* data;
 		while(getline(logfile_handler,line)){

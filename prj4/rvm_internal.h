@@ -15,7 +15,7 @@ using namespace std;
  * base address*/
 typedef struct _segment_t{
 	bool mapped;
-	bool already_being_used;
+	int used_by_tid;
 	int size_occupied;
 	char* base_addr;
 }segment_t;
@@ -42,6 +42,7 @@ typedef struct _undo_log_segment_t{
 typedef struct _redo_log_segment_t{
 	char* segment_addr;
 	char* segment_data;
+	int size;
 	int segment_offset;
 }redo_log_segment_t;
 
@@ -69,6 +70,11 @@ typedef pair<const char*, segment_t*> segment_pair_t;
 typedef map<char*, const char*> segment_addrmap_t;
 
 /*
+ * Segment addr map pair:
+ * Contains name to data structure pair*/
+typedef pair<char*, const char*> segment_addr_pair_t;
+
+/*
  * Transaction id and rvm direcotry map:
  * Contains Transaction id to rvm directory map*/
 typedef map<long long,char*> transaction_rvm_map_t;
@@ -93,5 +99,6 @@ typedef pair<trans_t, redo_log_vector_t> redo_log_pair_t;
 
 int get_file_size(const char* filepath);
 void segment_truncate(rvm_t, const char*);
+void print_segment_andaddr_map(void);
 
 #endif
