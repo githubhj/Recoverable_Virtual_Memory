@@ -20,19 +20,21 @@ redo_log_map_t redo_log_map;
 trans_t transaction_id_count=0;
 
 
-int get_file_size(const char* filepath){
+int get_file_size(string filepath){
 	//Read the file to find out its size
 
-	if(filepath == NULL){
+	if(filepath.c_str() == NULL){
 		cout  << "ERROR: get_file_size(): filepath is incorrect" << endl;
+		return -1;
 	}
 
 	//Read the file
-	ifstream fp(filepath, ios::binary | ios::ate);
+	ifstream fp(filepath.c_str(), ios::binary | ios::in);
 
 	//check if file exits
 	if(fp.good()){
 		//Return the present pointer in the file
+		fp.seekg(0,ios::end);
 		return fp.tellg();
 	}
 
@@ -41,8 +43,8 @@ int get_file_size(const char* filepath){
 	}
 }
 
-const char* create_segpath(const char* dir, const char* filename){
-	return (const char*)string( string(dir) + string("/") + string(filename)).c_str();
+string create_segpath(const char* dir, const char* filename){
+	return (string( string(dir) + string("/") + string(filename)).c_str());
 }
 
 void print_segment_andaddr_map()
@@ -76,13 +78,14 @@ rvm_t rvm_init(const char* directory){
 
 
 void *rvm_map(rvm_t rvm, const char *segname, int size_to_create){
-	const char* filepath = create_segpath(rvm,segname);
+	string filepath = create_segpath(rvm,segname);
 	int present_filesize = get_file_size(filepath);
+	//cout<<"Present File Size is "<<present_filesize<<endl;
 
 	//Segment not present in directory
 	if(present_filesize == -1){
-		string tempfile = string(filepath);
-		ofstream segfile(tempfile.c_str());
+		//string tempfile = string(filepath);
+		ofstream segfile(filepath.c_str());
 		segfile.close();
 
 		segment_t* temp_seg_ptr = (segment_t*)malloc(sizeof(segment_t));
@@ -100,6 +103,7 @@ void *rvm_map(rvm_t rvm, const char *segname, int size_to_create){
 	//If segment is present in the directory
 	else{
 		//If not on the hash map
+		//cout<<"Found in Directory" <<endl;
 		if(segment_map.find(segname) == segment_map.end()){
 			segment_t* temp_seg_ptr = (segment_t*)malloc(sizeof(segment_t));
 			temp_seg_ptr->base_addr = (char*)malloc(size_to_create);
@@ -109,9 +113,36 @@ void *rvm_map(rvm_t rvm, const char *segname, int size_to_create){
 			segment_map.insert(segment_pair_t(segname,temp_seg_ptr));
 			segment_addrmap.insert(segment_addr_pair_t(temp_seg_ptr->base_addr,segname));
 
-			//CHANGE
-			//COMMIT LOG FILE TO SEGMENT FILE
-			//COPY SEGMENT FROM DISK
+			//TRUNCATE AND COPY CONTENTS FROM DISK!!
+
+			rvm_truncate_log(rvm);
+
+			//cout<<"file truncated"<<endl;
+
+			ifstream segfile(filepath.c_str(), ios::in | ios::binary);
+
+			int my_filesize = get_file_size(filepath);
+
+			segfile.seekg(0,ios::beg);
+
+			segfile.read((char*)temp_seg_ptr->base_addr, my_filesize);
+
+			/*
+			string line;
+			getline(segfile,line);
+			//strcpy((char*)temp_seg_ptr->base_addr,line.c_str());(
+			memcpy((char*)temp_seg_ptr->base_addr, line.c_str(), size_to_create);*/
+
+
+
+
+			//cout<<"1.Data copied from file is "<<temp_seg_ptr->base_addr<<endl;
+
+			segfile.close();
+
+			//END OF TRUNCATING AND READING FROM FILE
+
+			return segment_map[segname]->base_addr;
 		}
 
 		//If in the hash map
@@ -121,14 +152,32 @@ void *rvm_map(rvm_t rvm, const char *segname, int size_to_create){
 
 				//If data file size is lesser than size_to_create
 				if(present_filesize < size_to_create){
-					segment_map[segname]->base_addr = (char*)realloc(segment_map[segname]->base_addr,size_to_create);
-					segment_map[segname]->mapped =  true;
-					segment_map[segname]->used_by_tid = 0; //CHANGE
-					segment_map[segname]->size_occupied = size_to_create;
+				segment_map[segname]->base_addr = (char*)realloc(segment_map[segname]->base_addr,size_to_create);
+				segment_map[segname]->mapped =  true;
+				segment_map[segname]->used_by_tid = 0; //CHANGE
+				segment_map[segname]->size_occupied = size_to_create;
 
-					//CHANGE
-					//COMMIT LOG FILE TO SEGMENT FILE
-					//COPY SEGMENT FROM DISK
+				//TRUNCATE AND COPY CONTENTS FROM DISK!!
+
+				rvm_truncate_log(rvm);
+
+				ifstream segfile(filepath.c_str(), ios::in | ios::binary);
+
+				int my_filesize = get_file_size(filepath);
+
+				segfile.seekg(0,ios::beg);
+
+				segfile.read((char*)segment_map[segname]->base_addr, my_filesize);
+
+				//cout<<"2.Data copied from file is "<<line<<endl;
+
+				segfile.close();
+
+			//END OF TRUNCATING AND READING FROM FILE
+
+
+
+				return segment_map[segname]->base_addr;
 				}
 
 				//Else return
@@ -144,12 +193,23 @@ void *rvm_map(rvm_t rvm, const char *segname, int size_to_create){
 				segment_map[segname]->mapped = true;
 				segment_map[segname]->used_by_tid = 0; //CHANGE
 				segment_map[segname]->size_occupied = size_to_create;
+
+				ifstream segfile(filepath.c_str(), ios::in | ios::binary);
+
+				int my_filesize = get_file_size(filepath);
+
+				segfile.seekg(0,ios::beg);
+
+				segfile.read((char*)segment_map[segname]->base_addr, my_filesize);
+
+				segfile.close();
+
+				return segment_map[segname]->base_addr;
 			}
 
 		}
 
 	}
-
 
 	return NULL;
 }
@@ -161,18 +221,28 @@ void rvm_unmap(rvm_t rvm, void *segbase){
 	segment_map[temp_segment_name]->mapped = false;
 }
 
+void rvm_logfile_destroy(rvm_t rvm, const char* segname)
+{
+	string filepath = create_segpath(rvm, segname);
+	string logfile = filepath + string(".logfile");
+	string rm("rm ");
+	rm = rm + logfile;
+
+	system(rm.c_str());
+}
+
 
 void rvm_destroy(rvm_t rvm, const char *segname){
 	//check whether the segment is mapped
 	//if yes then cannot destroy
 
-	const char* filepath = create_segpath(rvm, segname);
+	string filepath = create_segpath(rvm, segname);
 	string rm("rm");
 	rm = rm + string(" ") + filepath;
 	system(rm.c_str());
 
 	//Removing Backing Store
-	string logfile = string(filepath) + string(".logfile");
+	string logfile = filepath + string(".logfile");
 	rm = "rm ";
 	rm = rm + logfile;
 
@@ -184,7 +254,7 @@ void rvm_destroy(rvm_t rvm, const char *segname){
 
 	if(segment_map[segname]->mapped == true)
 	{
-		cout << "Cannot deleted a mapped segment" <<endl;
+		cout << "Error: Cannot deleted a mapped segment" <<endl;
 		return;
 	}
 
@@ -196,7 +266,7 @@ void rvm_destroy(rvm_t rvm, const char *segname){
 
 	if(it == segment_map.end())
 	{
-		cout << "Invalid Call to Destroy as segment does not exist" << endl;
+		cout << "Error: Invalid Call to Destroy as segment does not exist" << endl;
 		return;
 	}
 
@@ -210,9 +280,6 @@ trans_t rvm_begin_trans(rvm_t rvm, int numsegs, void **segbases){
 	for(int i =0 ; i<numsegs ; i++){
 		//Get segment name from segment addr - name map
 		const char* segment_name = segment_addrmap[(char* )segbases[i]];
-		cout<<"Inside Begin segment is "<<segment_name;
-		cout<< "In use is " << segment_map[segment_name]->used_by_tid <<endl;
-
 		//Look for segment name in segment name to segment data_str map
 		if(segment_map.find(segment_name) == segment_map.end()){
 			cout << "Error: rvm_begin_trans(): segment not found in segment map, mapping required" << endl;
@@ -251,7 +318,7 @@ void rvm_about_to_modify(trans_t tid, void *segbase, int offset, int size){
 
 	if(tid == -1)
 	{
-		cout << "Invalid Transaction which failed in begin" << endl;
+		cout << "Error: rvm_about_to_modify(): Invalid Transaction which failed in begin" << endl;
 		return;
 	}
 
@@ -264,7 +331,6 @@ void rvm_about_to_modify(trans_t tid, void *segbase, int offset, int size){
 		cout << "Error: rvm_about_to_modify(): tid not found in transaction rvm map" << endl;
 		return;
 	}
-
 	else if(segment_map[segname]->used_by_tid != tid){
 		cout << "Error: rvm_about_to_modify(): segment used by other tid" << endl;
 		return;
@@ -435,40 +501,55 @@ void rvm_truncate_log(rvm_t rvm){
 		file = file.substr(0, file.length() - 8); //filename - '.logfile'
  		char *segment_name = (char *) file.c_str();
 		segment_truncate(rvm, segment_name);
-	}
 
+		rvm_logfile_destroy(rvm, segment_name);
+	}
 }
 
 void segment_truncate(rvm_t rvm_dir, const char* segment_name){
-	const char* segment_file = create_segpath(rvm_dir,segment_name);
-	const char* segment_logfile = string(string(segment_file) + ".logfile").c_str();
+	string segment_file = create_segpath(rvm_dir,segment_name);
+	string segment_logfile = string(segment_file + string(".logfile"));
 
 	//No log, just remove logfile even if it does not exist
 	if(get_file_size(segment_logfile) == -1){
-		const char* remove_command = string(string("rm ") + string(segment_logfile)).c_str();
+		const char* remove_command = string(string("rm ") + segment_logfile).c_str();
 		system(remove_command);
 		return;
 	}
 	else{
 		string line;
-		ifstream logfile_handler(segment_logfile);
-		string delim = "~~::seperator::~~"; //CHANGE
+		//string temp_logfile = string(segment_logfile);
+		ifstream logfile_handler(segment_logfile.c_str());
+		string delim = "~~::separator::~~"; //CHANGE
 		int offset;
-		char* data;
+		string data;
+
 		while(getline(logfile_handler,line)){
 			//Get offset
-			offset = atoi(line.substr(0,line.find(delim)).c_str());
-			//Get data
-			data = line.substr(line.find(delim)+delim.length()).c_str();
+			unsigned int pos = line.find(delim);
+			if(pos != string::npos){
+				offset = atoi(line.substr(0,line.find(delim)).c_str());
 
-			ofstream segment_file_handler;
-			segment_file_handler.open(segment_file, std::ios_base::in | std::ios_base::out| std::ios_base::binary);
-			streamoff position = offset;
-			//Check this
-			segment_file_handler.seekp(position-1,ios::beg);
-			segment_file_handler << data;
-			segment_file_handler.close();
+				//Get data
+				data = line.substr(line.find(delim)+delim.length());
+
+				ofstream segment_file_handler;
+				segment_file_handler.open(segment_file.c_str(), std::ios_base::in | std::ios_base::out| std::ios_base::binary);
+
+				streamoff position = offset;
+				//Check this
+				segment_file_handler.seekp(position,ios::beg);
+				//cout<<"Data being truncated is "<<data<<endl;
+				segment_file_handler << data;
+				segment_file_handler.close();
+			}
+
 		}
 	}
 
 }
+
+//STUFF TO DISCUSS:
+
+//1. RVM_MAP ALL CONDITIONS SATISFIED? SIZE TO COMPARE SHOULDNT BE FILE SIZE.
+//3. Setting in_use = 0 or 1.	

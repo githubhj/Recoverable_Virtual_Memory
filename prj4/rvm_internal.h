@@ -97,7 +97,7 @@ typedef pair<trans_t, redo_log_vector_t> redo_log_pair_t;
 
 
 
-int get_file_size(const char* filepath);
+int get_file_size(string filepath);
 void segment_truncate(rvm_t, const char*);
 void print_segment_andaddr_map(void);
 
