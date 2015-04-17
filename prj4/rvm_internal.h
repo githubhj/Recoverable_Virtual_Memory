@@ -77,7 +77,7 @@ typedef pair<char*, const char*> segment_addr_pair_t;
 /*
  * Transaction id and rvm direcotry map:
  * Contains Transaction id to rvm directory map*/
-typedef map<long long,char*> transaction_rvm_map_t;
+typedef map<long long,const char*> transaction_rvm_map_t;
 
 /*
  * Transaction id and rvm direcotry pair:
